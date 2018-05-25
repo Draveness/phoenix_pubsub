@@ -153,8 +153,6 @@ defmodule Phoenix.PubSub do
   end
   @spec subscribe(atom, pid, binary, Keyword.t) :: :ok | {:error, term}
   def subscribe(server, pid, topic, opts) do
-    IO.write :stderr, "[warning] Passing a Pid to Phoenix.PubSub.subscribe is deprecated. " <>
-                      "Only the calling process may subscribe to topics"
     call(server, :subscribe, [pid, topic, opts])
   end
 
@@ -163,8 +161,6 @@ defmodule Phoenix.PubSub do
   """
   @spec unsubscribe(atom, pid, binary) :: :ok | {:error, term}
   def unsubscribe(server, pid, topic) when is_atom(server) do
-    IO.write :stderr, "[warning] Passing a Pid to Phoenix.PubSub.unsubscribe is deprecated. " <>
-                      "Only the calling process may unsubscribe from topics"
     call(server, :unsubscribe, [pid, topic])
   end
 
