@@ -1,0 +1,833 @@
+    <!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="x-ua-compatible" content="ie=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="generator" content="ExDoc v0.11.5">
+    <title>Phoenix.PubSub – phoenix_pubsub v1.0.2</title>
+    <link rel="stylesheet" href="dist/app-ddd9717ad9.css" />
+    
+      <link rel="canonical" href="https://hexdocs.pm/phoenix_pubsub/Phoenix.PubSub.html" />
+    
+    <script src="dist/sidebar_items.js"></script>
+  </head>
+  <body data-type="modules">
+
+    <div class="main">
+<button class="sidebar-toggle">
+  <i class="icon-menu"></i>
+</button>
+<section class="sidebar">
+  <button class="sidebar-toggle">
+    <i class="icon-menu"></i>
+  </button>
+
+  
+  <a href="api-reference.html" class="sidebar-projectLink">
+    <div class="sidebar-projectDetails">
+      <h1 class="sidebar-projectName">
+        phoenix_pubsub
+      </h1>
+      <h2 class="sidebar-projectVersion">
+        v1.0.2
+      </h2>
+    </div>
+    
+  </a>
+
+  <div class="sidebar-search">
+    <i class="icon-search"></i>
+    <input type="text" class="sidebar-searchInput" placeholder="search" autocomplete="off" />
+  </div>
+
+  <ul class="sidebar-listNav">
+    <li><a id="extras-list" href="#full-list">Pages</a></li>
+
+    
+      <li><a id="modules-list" href="#full-list">Modules</a></li>
+    
+
+    
+      <li><a id="exceptions-list" href="#full-list">Exceptions</a></li>
+    
+
+    
+  </ul>
+
+  <ul id="full-list" class="sidebar-fullList"></ul>
+  <div class="sidebar-noResults"></div>
+</section>
+
+<section class="content">
+  <div id="content" class="content-inner">
+
+
+      <h1>
+        <small class="visible-xs">phoenix_pubsub v1.0.2</small>
+        Phoenix.PubSub
+        
+        
+          <a href="https://github.com/phoenixframework/phoenix_pubsub/blob/master/lib/phoenix/pubsub.ex#L1" title="View Source" class="view-source" rel="help">
+            <i class="icon-code"></i>
+          </a>
+        
+      </h1>
+
+      
+        <section id="moduledoc" class="docstring">
+          <p>Front-end to Phoenix pubsub layer.</p>
+<p>Used internally by Channels for pubsub broadcast but
+also provides an API for direct usage.</p>
+<h2>Adapters</h2>
+<p>Phoenix pubsub was designed to be flexible and support
+multiple backends. We currently ship with two backends:</p>
+<ul>
+<li><p><code class="inline">Phoenix.PubSub.PG2</code> - uses Distributed Elixir,
+directly exchanging notifications between servers</p>
+</li>
+<li><code class="inline">Phoenix.PubSub.Redis</code> - uses Redis to exchange
+data between servers
+</li>
+</ul>
+<p>Pubsub adapters are often configured in your endpoint:</p>
+<pre><code class="elixir">config :my_app, MyApp.Endpoint,
+  pubsub: [adapter: Phoenix.PubSub.PG2,
+           pool_size: 1,
+           name: MyApp.PubSub]</code></pre>
+<p>The configuration above takes care of starting the
+pubsub backend and exposing its functions via the
+endpoint module. If no adapter but a name is given,
+nothing will be started, but the pubsub system will
+work by sending events and subscribing to the given
+name.</p>
+<h2>Direct usage</h2>
+<p>It is also possible to use <a href="Phoenix.PubSub.html#content"><code class="inline">Phoenix.PubSub</code></a> directly
+or even run your own pubsub backends outside of an
+Endpoint.</p>
+<p>The first step is to start the adapter of choice in your
+supervision tree:</p>
+<pre><code class="elixir">supervisor(Phoenix.PubSub.Redis, [:my_pubsub, host: &quot;192.168.100.1&quot;])</code></pre>
+<p>The configuration above will start a Redis pubsub and
+register it with name <code class="inline">:my_pubsub</code>.</p>
+<p>You can now use the functions in this module to subscribe
+and broadcast messages:</p>
+<pre><code class="iex elixir">iex&gt; PubSub.subscribe :my_pubsub, self(), &quot;user:123&quot;
+:ok
+iex&gt; Process.info(self())[:messages]
+[]
+iex&gt; PubSub.broadcast :my_pubsub, &quot;user:123&quot;, {:user_update, %{id: 123, name: &quot;Shane&quot;}}
+:ok
+iex&gt; Process.info(self())[:messages]
+{:user_update, %{id: 123, name: &quot;Shane&quot;}}</code></pre>
+<h2>Implementing your own adapter</h2>
+<p>PubSub adapters run inside their own supervision tree.
+If you are interested in providing your own adapter,  let’s
+call it <code class="inline">Phoenix.PubSub.MyQueue</code>, the first step is to provide
+a supervisor module that receives the server name and a bunch
+of options on <code class="inline">start_link/2</code>:</p>
+<pre><code class="elixir">defmodule Phoenix.PubSub.MyQueue do
+  def start_link(name, options) do
+    Supervisor.start_link(__MODULE__, {name, options},
+                          name: Module.concat(name, Supervisor))
+  end
+
+  def init({name, options}) do
+    ...
+  end
+end</code></pre>
+<p>On <code class="inline">init/1</code>, you will define the supervision tree and use the given
+<code class="inline">name</code> to register the main pubsub process locally. This process must
+be able to handle the following GenServer calls:</p>
+<ul>
+<li><p><code class="inline">subscribe</code> - subscribes the given pid to the given topic
+sends:        <code class="inline">{:subscribe, pid, topic, opts}</code>
+respond with: <code class="inline">:ok | {:error, reason} | {:perform, {m, f, a}}</code></p>
+</li>
+<li><p><code class="inline">unsubscribe</code> - unsubscribes the given pid from the given topic
+sends:        <code class="inline">{:unsubscribe, pid, topic}</code>
+respond with: <code class="inline">:ok | {:error, reason} | {:perform, {m, f, a}}</code></p>
+</li>
+<li><code class="inline">broadcast</code> - broadcasts a message on the given topic
+sends:        <code class="inline">{:broadcast, :none | pid, topic, message}</code>
+respond with: <code class="inline">:ok | {:error, reason} | {:perform, {m, f, a}}</code>
+</li>
+</ul>
+<h3>Offloading work to clients via MFA response</h3>
+<p>The <a href="Phoenix.PubSub.html#content"><code class="inline">Phoenix.PubSub</code></a> API allows any of its functions to handle a
+response from the adapter matching <code class="inline">{:perform, {m, f, a}}</code>. The PubSub
+client will recursively invoke all MFA responses until a result is
+returned. This is useful for offloading work to clients without blocking
+your PubSub adapter. See <code class="inline">Phoenix.PubSub.PG2</code> implementation for examples.</p>
+
+        </section>
+      
+
+      
+        <section id="summary" class="details-list">
+          <h1 class="section-heading">
+            <a class="hover-link" href="#summary">
+              <i class="icon-link"></i>
+            </a>
+            Summary
+          </h1>
+          
+  <div class="summary-types summary">
+    <h2>
+      <a href="#types">Types</a>
+    </h2>
+    <div class="summary-row">
+  <div class="summary-signature">
+    <a href="#t:node_name/0">node_name()</a>
+  </div>
+  
+</div>
+
+  </div>
+
+
+          
+  <div class="summary-functions summary">
+    <h2>
+      <a href="#functions">Functions</a>
+    </h2>
+    <div class="summary-row">
+  <div class="summary-signature">
+    <a href="#broadcast/3">broadcast(server, topic, message)</a>
+  </div>
+  
+    <div class="summary-synopsis"><p>Broadcasts message on given topic</p>
+</div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#broadcast!/3">broadcast!(server, topic, message)</a>
+  </div>
+  
+    <div class="summary-synopsis"><p>Broadcasts message on given topic</p>
+</div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#broadcast_from/4">broadcast_from(server, from_pid, topic, message)</a>
+  </div>
+  
+    <div class="summary-synopsis"><p>Broadcasts message to all but <code class="inline">from_pid</code> on given topic.
+See <a href="Phoenix.PubSub.html#broadcast/3"><code class="inline">Phoenix.PubSub.broadcast/3</code></a> for usage details</p>
+</div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#broadcast_from!/4">broadcast_from!(server, from_pid, topic, message)</a>
+  </div>
+  
+    <div class="summary-synopsis"><p>Broadcasts message to all but <code class="inline">from_pid</code> on given topic</p>
+</div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#direct_broadcast/4">direct_broadcast(node_name, server, topic, message)</a>
+  </div>
+  
+    <div class="summary-synopsis"><p>Broadcasts message on given topic, to a single node</p>
+</div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#direct_broadcast!/4">direct_broadcast!(node_name, server, topic, message)</a>
+  </div>
+  
+    <div class="summary-synopsis"><p>Broadcasts message on given topic, to a single node</p>
+</div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#direct_broadcast_from/5">direct_broadcast_from(node_name, server, from_pid, topic, message)</a>
+  </div>
+  
+    <div class="summary-synopsis"><p>Broadcasts message to all but <code class="inline">from_pid</code> on given topic, to a single node.
+See <a href="Phoenix.PubSub.html#broadcast/3"><code class="inline">Phoenix.PubSub.broadcast/3</code></a> for usage details</p>
+</div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#direct_broadcast_from!/5">direct_broadcast_from!(node_name, server, from_pid, topic, message)</a>
+  </div>
+  
+    <div class="summary-synopsis"><p>Broadcasts message to all but <code class="inline">from_pid</code> on given topic, to a single node</p>
+</div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#node_name/1">node_name(server)</a>
+  </div>
+  
+    <div class="summary-synopsis"><p>Returns the node name of the PubSub server</p>
+</div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#subscribe/2">subscribe(server, topic)</a>
+  </div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#subscribe/3">subscribe(server, pid, topic)</a>
+  </div>
+  
+    <div class="summary-synopsis"><p>Subscribes the caller to the PubSub adapter’s topic</p>
+</div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#subscribe/4">subscribe(server, pid, topic, opts)</a>
+  </div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#unsubscribe/2">unsubscribe(server, topic)</a>
+  </div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#unsubscribe/3">unsubscribe(server, pid, topic)</a>
+  </div>
+  
+    <div class="summary-synopsis"><p>Unsubscribes the caller from the PubSub adapter’s topic</p>
+</div>
+  
+</div>
+
+  </div>
+
+
+          
+
+          
+
+        </section>
+      
+
+      
+        <section id="types" class="types details-list">
+          <h1 class="section-heading">
+            <a class="hover-link" href="#types">
+              <i class="icon-link"></i>
+            </a>
+            Types
+          </h1>
+          <div class="types-list">
+            <div id="t:node_name/0" class="type-detail">
+  <pre><code class="elixir"><a href="#t:node_name/0">node_name</a> :: atom :: binary</code></pre>
+  
+</div>
+
+          </div>
+        </section>
+      
+
+      
+        <section id="functions" class="details-list">
+          <h1 class="section-heading">
+            <a class="hover-link" href="#functions">
+              <i class="icon-link"></i>
+            </a>
+            Functions
+          </h1>
+          <div class="detail" id="broadcast/3">
+  <div class="detail-header">
+    <a href="#broadcast/3" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">broadcast(server, topic, message)</span>
+      
+      <a href="https://github.com/phoenixframework/phoenix_pubsub/blob/master/lib/phoenix/pubsub.ex#L182" class="view-source" rel="help" title="View Source">
+       <i class="icon-code"></i>
+     </a>
+    
+  </div>
+  
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">broadcast(atom, binary, term) ::
+  :ok |
+  {:error, term}</code></pre>
+        
+      </div>
+    </div>
+  
+  <section class="docstring">
+    <p>Broadcasts message on given topic.</p>
+<ul>
+<li><code class="inline">server</code> - The Pid or registered server name and optional node to
+scope the broadcast, for example: <code class="inline">MyApp.PubSub</code>, <code class="inline">{MyApp.PubSub, :a@node}</code>
+</li>
+<li><code class="inline">topic</code> - The topic to broadcast to, ie: <code class="inline">&quot;users:123&quot;</code>
+</li>
+<li><code class="inline">message</code> - The payload of the broadcast
+</li>
+</ul>
+
+  </section>
+</div>
+<div class="detail" id="broadcast!/3">
+  <div class="detail-header">
+    <a href="#broadcast!/3" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">broadcast!(server, topic, message)</span>
+      
+      <a href="https://github.com/phoenixframework/phoenix_pubsub/blob/master/lib/phoenix/pubsub.ex#L207" class="view-source" rel="help" title="View Source">
+       <i class="icon-code"></i>
+     </a>
+    
+  </div>
+  
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">broadcast!(atom, binary, term) :: :ok | no_return</code></pre>
+        
+      </div>
+    </div>
+  
+  <section class="docstring">
+    <p>Broadcasts message on given topic.</p>
+<p>Raises <a href="Phoenix.PubSub.BroadcastError.html"><code class="inline">Phoenix.PubSub.BroadcastError</code></a> if broadcast fails.
+See <a href="Phoenix.PubSub.html#broadcast/3"><code class="inline">Phoenix.PubSub.broadcast/3</code></a> for usage details.</p>
+
+  </section>
+</div>
+<div class="detail" id="broadcast_from/4">
+  <div class="detail-header">
+    <a href="#broadcast_from/4" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">broadcast_from(server, from_pid, topic, message)</span>
+      
+      <a href="https://github.com/phoenixframework/phoenix_pubsub/blob/master/lib/phoenix/pubsub.ex#L233" class="view-source" rel="help" title="View Source">
+       <i class="icon-code"></i>
+     </a>
+    
+  </div>
+  
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">broadcast_from(atom, pid, binary, term) ::
+  :ok |
+  {:error, term}</code></pre>
+        
+      </div>
+    </div>
+  
+  <section class="docstring">
+    <p>Broadcasts message to all but <code class="inline">from_pid</code> on given topic.
+See <a href="Phoenix.PubSub.html#broadcast/3"><code class="inline">Phoenix.PubSub.broadcast/3</code></a> for usage details.</p>
+
+  </section>
+</div>
+<div class="detail" id="broadcast_from!/4">
+  <div class="detail-header">
+    <a href="#broadcast_from!/4" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">broadcast_from!(server, from_pid, topic, message)</span>
+      
+      <a href="https://github.com/phoenixframework/phoenix_pubsub/blob/master/lib/phoenix/pubsub.ex#L252" class="view-source" rel="help" title="View Source">
+       <i class="icon-code"></i>
+     </a>
+    
+  </div>
+  
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">broadcast_from!(atom | {atom, atom}, pid, binary, term) ::
+  :ok |
+  no_return</code></pre>
+        
+      </div>
+    </div>
+  
+  <section class="docstring">
+    <p>Broadcasts message to all but <code class="inline">from_pid</code> on given topic.</p>
+<p>Raises <a href="Phoenix.PubSub.BroadcastError.html"><code class="inline">Phoenix.PubSub.BroadcastError</code></a> if broadcast fails.
+See <a href="Phoenix.PubSub.html#broadcast/3"><code class="inline">Phoenix.PubSub.broadcast/3</code></a> for usage details.</p>
+
+  </section>
+</div>
+<div class="detail" id="direct_broadcast/4">
+  <div class="detail-header">
+    <a href="#direct_broadcast/4" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">direct_broadcast(node_name, server, topic, message)</span>
+      
+      <a href="https://github.com/phoenixframework/phoenix_pubsub/blob/master/lib/phoenix/pubsub.ex#L197" class="view-source" rel="help" title="View Source">
+       <i class="icon-code"></i>
+     </a>
+    
+  </div>
+  
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">direct_broadcast(<a href="#t:node_name/0">node_name</a>, atom, binary, term) ::
+  :ok |
+  {:error, term}</code></pre>
+        
+      </div>
+    </div>
+  
+  <section class="docstring">
+    <p>Broadcasts message on given topic, to a single node.</p>
+<ul>
+<li><code class="inline">node</code> - The name of the node to broadcast the message on
+</li>
+<li><code class="inline">server</code> - The Pid or registered server name and optional node to
+scope the broadcast, for example: <code class="inline">MyApp.PubSub</code>, <code class="inline">{MyApp.PubSub, :a@node}</code>
+</li>
+<li><code class="inline">topic</code> - The topic to broadcast to, ie: <code class="inline">&quot;users:123&quot;</code>
+</li>
+<li><code class="inline">message</code> - The payload of the broadcast
+</li>
+</ul>
+
+  </section>
+</div>
+<div class="detail" id="direct_broadcast!/4">
+  <div class="detail-header">
+    <a href="#direct_broadcast!/4" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">direct_broadcast!(node_name, server, topic, message)</span>
+      
+      <a href="https://github.com/phoenixframework/phoenix_pubsub/blob/master/lib/phoenix/pubsub.ex#L221" class="view-source" rel="help" title="View Source">
+       <i class="icon-code"></i>
+     </a>
+    
+  </div>
+  
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">direct_broadcast!(<a href="#t:node_name/0">node_name</a>, atom, binary, term) ::
+  :ok |
+  no_return</code></pre>
+        
+      </div>
+    </div>
+  
+  <section class="docstring">
+    <p>Broadcasts message on given topic, to a single node.</p>
+<p>Raises <a href="Phoenix.PubSub.BroadcastError.html"><code class="inline">Phoenix.PubSub.BroadcastError</code></a> if broadcast fails.
+See <a href="Phoenix.PubSub.html#broadcast/3"><code class="inline">Phoenix.PubSub.broadcast/3</code></a> for usage details.</p>
+
+  </section>
+</div>
+<div class="detail" id="direct_broadcast_from/5">
+  <div class="detail-header">
+    <a href="#direct_broadcast_from/5" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">direct_broadcast_from(node_name, server, from_pid, topic, message)</span>
+      
+      <a href="https://github.com/phoenixframework/phoenix_pubsub/blob/master/lib/phoenix/pubsub.ex#L241" class="view-source" rel="help" title="View Source">
+       <i class="icon-code"></i>
+     </a>
+    
+  </div>
+  
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">direct_broadcast_from(<a href="#t:node_name/0">node_name</a>, atom, pid, binary, term) ::
+  :ok |
+  {:error, term}</code></pre>
+        
+      </div>
+    </div>
+  
+  <section class="docstring">
+    <p>Broadcasts message to all but <code class="inline">from_pid</code> on given topic, to a single node.
+See <a href="Phoenix.PubSub.html#broadcast/3"><code class="inline">Phoenix.PubSub.broadcast/3</code></a> for usage details.</p>
+
+  </section>
+</div>
+<div class="detail" id="direct_broadcast_from!/5">
+  <div class="detail-header">
+    <a href="#direct_broadcast_from!/5" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">direct_broadcast_from!(node_name, server, from_pid, topic, message)</span>
+      
+      <a href="https://github.com/phoenixframework/phoenix_pubsub/blob/master/lib/phoenix/pubsub.ex#L266" class="view-source" rel="help" title="View Source">
+       <i class="icon-code"></i>
+     </a>
+    
+  </div>
+  
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">direct_broadcast_from!(<a href="#t:node_name/0">node_name</a>, atom, pid, binary, term) ::
+  :ok |
+  no_return</code></pre>
+        
+      </div>
+    </div>
+  
+  <section class="docstring">
+    <p>Broadcasts message to all but <code class="inline">from_pid</code> on given topic, to a single node.</p>
+<p>Raises <a href="Phoenix.PubSub.BroadcastError.html"><code class="inline">Phoenix.PubSub.BroadcastError</code></a> if broadcast fails.
+See <a href="Phoenix.PubSub.html#broadcast/3"><code class="inline">Phoenix.PubSub.broadcast/3</code></a> for usage details.</p>
+
+  </section>
+</div>
+<div class="detail" id="node_name/1">
+  <div class="detail-header">
+    <a href="#node_name/1" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">node_name(server)</span>
+      
+      <a href="https://github.com/phoenixframework/phoenix_pubsub/blob/master/lib/phoenix/pubsub.ex#L279" class="view-source" rel="help" title="View Source">
+       <i class="icon-code"></i>
+     </a>
+    
+  </div>
+  
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">node_name(atom) :: atom :: binary</code></pre>
+        
+      </div>
+    </div>
+  
+  <section class="docstring">
+    <p>Returns the node name of the PubSub server.</p>
+
+  </section>
+</div>
+<div class="detail" id="subscribe/2">
+  <div class="detail-header">
+    <a href="#subscribe/2" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">subscribe(server, topic)</span>
+      
+      <a href="https://github.com/phoenixframework/phoenix_pubsub/blob/master/lib/phoenix/pubsub.ex#L151" class="view-source" rel="help" title="View Source">
+       <i class="icon-code"></i>
+     </a>
+    
+  </div>
+  
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">subscribe(atom, binary) :: :ok | {:error, term}</code></pre>
+        
+      </div>
+    </div>
+  
+  <section class="docstring">
+    
+  </section>
+</div>
+<div class="detail" id="subscribe/3">
+  <div class="detail-header">
+    <a href="#subscribe/3" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">subscribe(server, pid, topic)</span>
+      
+      <a href="https://github.com/phoenixframework/phoenix_pubsub/blob/master/lib/phoenix/pubsub.ex#L146" class="view-source" rel="help" title="View Source">
+       <i class="icon-code"></i>
+     </a>
+    
+  </div>
+  
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">subscribe(atom, binary, <a href="http://elixir-lang.org/docs/stable/elixir/Keyword.html#t:t/0">Keyword.t</a>) ::
+  :ok |
+  {:error, term}</code></pre>
+        
+          <pre><code class="elixir">subscribe(atom, pid, binary) ::
+  :ok |
+  {:error, term}</code></pre>
+        
+      </div>
+    </div>
+  
+  <section class="docstring">
+    <p>Subscribes the caller to the PubSub adapter’s topic.</p>
+<ul>
+<li><code class="inline">server</code> - The Pid registered name of the server
+</li>
+<li><code class="inline">topic</code> - The topic to subscribe to, for example: <code class="inline">&quot;users:123&quot;</code>
+</li>
+<li><code class="inline">opts</code> - The optional list of options. See below.
+</li>
+</ul>
+<h2>Duplicate Subscriptions</h2>
+<p>Callers should only subscribe to a given topic a single time.
+Duplicate subscriptions for a Pid/topic pair are allowed and
+will cause duplicate events to be sent; however, when using
+<a href="Phoenix.PubSub.html#unsubscribe/3"><code class="inline">Phoenix.PubSub.unsubscribe/3</code></a>, all duplicate subscriptions
+will be dropped.</p>
+<h2>Options</h2>
+<ul>
+<li><code class="inline">:link</code> - links the subscriber to the pubsub adapter
+</li>
+<li><p><code class="inline">:fastlane</code> - Provides a fastlane path for the broadcasts for
+<code class="inline">%Phoenix.Socket.Broadcast{}</code> events. The fastlane process is
+notified of a cached message instead of the normal subscriber.
+Fastlane handlers must implement <code class="inline">fastlane/1</code> callbacks which accepts
+a <code class="inline">Phoenix.Socket.Broadcast</code> structs and returns a fastlaned format
+for the handler. For example:</p>
+<pre><code class="elixir">PubSub.subscribe(MyApp.PubSub, &quot;topic1&quot;,
+  fastlane: {fast_pid, Phoenix.Transports.WebSocketSerializer, [&quot;event1&quot;]})</code></pre>
+</li>
+</ul>
+
+  </section>
+</div>
+<div class="detail" id="subscribe/4">
+  <div class="detail-header">
+    <a href="#subscribe/4" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">subscribe(server, pid, topic, opts)</span>
+      
+      <a href="https://github.com/phoenixframework/phoenix_pubsub/blob/master/lib/phoenix/pubsub.ex#L155" class="view-source" rel="help" title="View Source">
+       <i class="icon-code"></i>
+     </a>
+    
+  </div>
+  
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">subscribe(atom, pid, binary, <a href="http://elixir-lang.org/docs/stable/elixir/Keyword.html#t:t/0">Keyword.t</a>) ::
+  :ok |
+  {:error, term}</code></pre>
+        
+      </div>
+    </div>
+  
+  <section class="docstring">
+    
+  </section>
+</div>
+<div class="detail" id="unsubscribe/2">
+  <div class="detail-header">
+    <a href="#unsubscribe/2" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">unsubscribe(server, topic)</span>
+      
+      <a href="https://github.com/phoenixframework/phoenix_pubsub/blob/master/lib/phoenix/pubsub.ex#L168" class="view-source" rel="help" title="View Source">
+       <i class="icon-code"></i>
+     </a>
+    
+  </div>
+  
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">unsubscribe(atom, binary) :: :ok | {:error, term}</code></pre>
+        
+      </div>
+    </div>
+  
+  <section class="docstring">
+    
+  </section>
+</div>
+<div class="detail" id="unsubscribe/3">
+  <div class="detail-header">
+    <a href="#unsubscribe/3" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">unsubscribe(server, pid, topic)</span>
+      
+      <a href="https://github.com/phoenixframework/phoenix_pubsub/blob/master/lib/phoenix/pubsub.ex#L163" class="view-source" rel="help" title="View Source">
+       <i class="icon-code"></i>
+     </a>
+    
+  </div>
+  
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">unsubscribe(atom, pid, binary) ::
+  :ok |
+  {:error, term}</code></pre>
+        
+      </div>
+    </div>
+  
+  <section class="docstring">
+    <p>Unsubscribes the caller from the PubSub adapter’s topic.</p>
+
+  </section>
+</div>
+
+        </section>
+      
+
+      
+
+      
+        <footer class="footer">
+      <p>
+        <span class="line">
+          Built using
+          <a href="https://github.com/elixir-lang/ex_doc" title="ExDoc" rel="help" target="_blank">ExDoc</a> (v0.11.5),
+        </span>
+        <span class="line">
+          designed by
+          <a href="https://twitter.com/dignifiedquire" target="_blank" title="@dignifiedquire">Friedel Ziegelmayer</a>.
+          </span>
+      </p>
+      <button class="night-mode-toggle" />
+    </footer>
+  </div>
+</section>
+</div>
+  <script src="dist/app-918614602f.js"></script>
+  </body>
+</html>
+

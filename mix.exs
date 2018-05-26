@@ -29,13 +29,15 @@ defmodule Phoenix.PubSub.Mixfile do
 
   defp deps do
     [{:dialyze, "~> 0.2.0", only: :dev},
-     {:ex_doc, ">= 0.0.0", only: :dev}]
+     {:ex_doc, ">= 0.0.0", only: :dev},
+     {:earmark, ">= 0.0.0"}]
   end
 
   defp package do
     [maintainers: ["Chris McCord", "José Valim", "Alexander Songe", "Gary Rennie"],
      licenses: ["MIT"],
-     links: %{github: "https://github.com/phoenixframework/phoenix_pubsub"},
+     links: %{github: "https://github.com/peatio/phoenix_pubsub"},
+     organization: "peatio",
      files: ~w(lib test/shared) ++
             ~w(CHANGELOG.md LICENSE.md mix.exs README.md)]
   end

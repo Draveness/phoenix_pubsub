@@ -1,0 +1,760 @@
+    <!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="x-ua-compatible" content="ie=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="generator" content="ExDoc v0.11.5">
+    <title>Phoenix.Tracker – phoenix_pubsub v1.0.2</title>
+    <link rel="stylesheet" href="dist/app-ddd9717ad9.css" />
+    
+      <link rel="canonical" href="https://hexdocs.pm/phoenix_pubsub/Phoenix.Tracker.html" />
+    
+    <script src="dist/sidebar_items.js"></script>
+  </head>
+  <body data-type="modules">
+
+    <div class="main">
+<button class="sidebar-toggle">
+  <i class="icon-menu"></i>
+</button>
+<section class="sidebar">
+  <button class="sidebar-toggle">
+    <i class="icon-menu"></i>
+  </button>
+
+  
+  <a href="api-reference.html" class="sidebar-projectLink">
+    <div class="sidebar-projectDetails">
+      <h1 class="sidebar-projectName">
+        phoenix_pubsub
+      </h1>
+      <h2 class="sidebar-projectVersion">
+        v1.0.2
+      </h2>
+    </div>
+    
+  </a>
+
+  <div class="sidebar-search">
+    <i class="icon-search"></i>
+    <input type="text" class="sidebar-searchInput" placeholder="search" autocomplete="off" />
+  </div>
+
+  <ul class="sidebar-listNav">
+    <li><a id="extras-list" href="#full-list">Pages</a></li>
+
+    
+      <li><a id="modules-list" href="#full-list">Modules</a></li>
+    
+
+    
+      <li><a id="exceptions-list" href="#full-list">Exceptions</a></li>
+    
+
+    
+  </ul>
+
+  <ul id="full-list" class="sidebar-fullList"></ul>
+  <div class="sidebar-noResults"></div>
+</section>
+
+<section class="content">
+  <div id="content" class="content-inner">
+
+
+      <h1>
+        <small class="visible-xs">phoenix_pubsub v1.0.2</small>
+        Phoenix.Tracker
+        
+          <small>behaviour</small>
+        
+        
+          <a href="https://github.com/phoenixframework/phoenix_pubsub/blob/master/lib/phoenix/tracker.ex#L1" title="View Source" class="view-source" rel="help">
+            <i class="icon-code"></i>
+          </a>
+        
+      </h1>
+
+      
+        <section id="moduledoc" class="docstring">
+          <p>Provides distributed Presence tracking to processes.</p>
+<p>Tracker servers use a heartbeat protocol and CRDT to replicate presence
+information across a cluster in an eventually consistent, conflict-free
+manner. Under this design, there is no single source of truth or global
+process. Instead, each node runs one or more <a href="Phoenix.Tracker.html#content"><code class="inline">Phoenix.Tracker</code></a> servers and
+node-local changes are replicated across the cluster and handled locally as
+a diff of changes.</p>
+<ul>
+<li><code class="inline">tracker</code> - The name of the tracker handler module implementing the
+<a href="Phoenix.Tracker.html#content"><code class="inline">Phoenix.Tracker</code></a> behaviour
+</li>
+<li><code class="inline">tracker_opts</code> - The list of options to pass to the tracker handler
+</li>
+<li><code class="inline">server_opts</code> - The list of options to pass to the tracker server
+</li>
+</ul>
+<h2>Required <code class="inline">server_opts</code>:</h2>
+<ul>
+<li><code class="inline">:name</code> - The name of the server, such as: <code class="inline">MyApp.Tracker</code>
+</li>
+<li><code class="inline">:pubsub_server</code> - The name of the PubSub server, such as: <code class="inline">MyApp.PubSub</code>
+</li>
+</ul>
+<h2>Optional <code class="inline">server_opts</code>:</h2>
+<ul>
+<li><code class="inline">broadcast_period</code> - The interval in milliseconds to send delta broadcats
+across the cluster. Default <code class="inline">1500</code>
+</li>
+<li><code class="inline">max_silent_periods</code> - The max integer of broadcast periods for which no
+delta broadcasts have been sent. Defaults <code class="inline">10</code> (15s heartbeat)
+</li>
+<li><code class="inline">down_period</code> - The interval in milliseconds to flag a replica
+as down temporarily down. Default <code class="inline">broadcast_period * max_silent_periods * 2</code>
+(30s down detection). Note: This must be at least 2x the <code class="inline">broadcast_period</code>.
+</li>
+<li><code class="inline">permdown_period</code> - The interval in milliseconds to flag a replica
+as permanently down, and discard its state.
+Note: This must be at least greater than the <code class="inline">down_period</code>.
+Default <code class="inline">1_200_000</code> (20 minutes)
+</li>
+<li><code class="inline">clock_sample_periods</code> - The numbers of heartbeat windows to sample
+remote clocks before collapsing and requesting transfer. Default <code class="inline">2</code>
+</li>
+<li><code class="inline">max_delta_sizes</code> - The list of delta generation sizes to keep before
+falling back to sending entire state. Defaults <code class="inline">[100, 1000, 10_000]</code>.
+</li>
+<li>log_level - The log level to log events, defaults <code class="inline">:debug</code> and can be
+disabled with <code class="inline">false</code>
+</li>
+</ul>
+<h2>Implementing a Tracker</h2>
+<p>To start a tracker, first add the tracker to your supervision tree:</p>
+<pre><code class="elixir">worker(MyTracker, [[name: MyTracker, pubsub_server: MyPubSub]])</code></pre>
+<p>Next, implement <code class="inline">MyTracker</code> with support for the <a href="Phoenix.Tracker.html#content"><code class="inline">Phoenix.Tracker</code></a>
+behaviour callbacks. An example of a minimal tracker could include:</p>
+<pre><code class="elixir">defmodule MyTracker do
+  @behaviour Phoenix.Tracker
+
+  def start_link(opts) do
+    opts = Keyword.merge([name: __MODULE__], opts)
+    GenServer.start_link(Phoenix.Tracker, [__MODULE__, opts, opts], name: __MODULE__)
+  end
+
+  def init(opts) do
+    server = Keyword.fetch!(opts, :pubsub_server)
+    {:ok, %{pubsub_server: server, node_name: Phoenix.PubSub.node_name(server)}}
+  end
+
+  def handle_diff(diff, state) do
+    for {topic, {joins, leaves}} &lt;- diff do
+      for {key, meta} &lt;- joins do
+        IO.puts &quot;presence join: key \&quot;#{key}\&quot; with meta #{inspect meta}&quot;
+        msg = {:join, key, meta}
+        Phoenix.PubSub.direct_broadcast!(state.node_name, state.pubsub_server, topic, msg)
+      end
+      for {key, meta} &lt;- leaves do
+        IO.puts &quot;presence leave: key \&quot;#{key}\&quot; with meta #{inspect meta}&quot;
+        msg = {:leave, key, meta}
+        Phoenix.PubSub.direct_broadcast!(state.node_name, state.pubsub_server, topic, msg)
+      end
+    end
+    {:ok, state}
+  end
+end</code></pre>
+<p>Trackers must implement <code class="inline">start_link/1</code>, <a href="#init/1"><code class="inline">init/1</code></a>, and <code class="inline">handle_diff/2</code>.
+The <a href="#init/1"><code class="inline">init/1</code></a> callback allows the tracker to manage its own state when
+running within the <a href="Phoenix.Tracker.html#content"><code class="inline">Phoenix.Tracker</code></a> server. The <code class="inline">handle_diff</code> callback
+is invoked with a diff of presence join and leave events, grouped by
+topic. As replicas heartbeat and replicate data, the local tracker state is
+merged with the remote data, and the diff is sent to the callback. The
+handler can use this information to notify subscribers of events, as
+done above.</p>
+<h2>Special Considerations</h2>
+<p>Operations within <code class="inline">handle_diff/2</code> happen <em>in the tracker server’s context</em>.
+Therefore, blocking operations should be avoided when possible, and offloaded
+to a supervised task when required. Also, a crash in the <code class="inline">handle_diff/2</code> will
+crash the tracker server, so operations that may crash the server should be
+offloaded with a <code class="inline">Task.Supervisor</code> spawned process.</p>
+
+        </section>
+      
+
+      
+        <section id="summary" class="details-list">
+          <h1 class="section-heading">
+            <a class="hover-link" href="#summary">
+              <i class="icon-link"></i>
+            </a>
+            Summary
+          </h1>
+          
+  <div class="summary-types summary">
+    <h2>
+      <a href="#types">Types</a>
+    </h2>
+    <div class="summary-row">
+  <div class="summary-signature">
+    <a href="#t:presence/0">presence()</a>
+  </div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#t:topic/0">topic()</a>
+  </div>
+  
+</div>
+
+  </div>
+
+
+          
+  <div class="summary-functions summary">
+    <h2>
+      <a href="#functions">Functions</a>
+    </h2>
+    <div class="summary-row">
+  <div class="summary-signature">
+    <a href="#child_spec/1">child_spec(arg)</a>
+  </div>
+  
+    <div class="summary-synopsis"><p>Returns a specification to start this module under a supervisor</p>
+</div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#graceful_permdown/1">graceful_permdown(server_name)</a>
+  </div>
+  
+    <div class="summary-synopsis"><p>Gracefully shuts down by broadcasting permdown to all replicas</p>
+</div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#init/1">init(list)</a>
+  </div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#list/2">list(server_name, topic)</a>
+  </div>
+  
+    <div class="summary-synopsis"><p>Lists all presences tracked under a given topic</p>
+</div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#start_link/3">start_link(tracker, tracker_opts, server_opts)</a>
+  </div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#track/5">track(server_name, pid, topic, key, meta)</a>
+  </div>
+  
+    <div class="summary-synopsis"><p>Tracks a presence</p>
+</div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#untrack/2">untrack(server_name, pid)</a>
+  </div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#untrack/4">untrack(server_name, pid, topic, key)</a>
+  </div>
+  
+    <div class="summary-synopsis"><p>Untracks a presence</p>
+</div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#update/5">update(server_name, pid, topic, key, meta)</a>
+  </div>
+  
+    <div class="summary-synopsis"><p>Updates a presence’s metadata</p>
+</div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#validate_down_period/2">validate_down_period(d_period, b_period)</a>
+  </div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#validate_permdown_period/2">validate_permdown_period(p_period, d_period)</a>
+  </div>
+  
+</div>
+
+  </div>
+
+
+          
+
+          
+  <div class="summary-callbacks summary">
+    <h2>
+      <a href="#callbacks">Callbacks</a>
+    </h2>
+    <div class="summary-row">
+  <div class="summary-signature">
+    <a href="#c:handle_diff/2">handle_diff(%{}, state)</a>
+  </div>
+  
+</div>
+<div class="summary-row">
+  <div class="summary-signature">
+    <a href="#c:init/1">init(arg0)</a>
+  </div>
+  
+</div>
+
+  </div>
+
+
+        </section>
+      
+
+      
+        <section id="types" class="types details-list">
+          <h1 class="section-heading">
+            <a class="hover-link" href="#types">
+              <i class="icon-link"></i>
+            </a>
+            Types
+          </h1>
+          <div class="types-list">
+            <div id="t:presence/0" class="type-detail">
+  <pre><code class="elixir"><a href="#t:presence/0">presence</a> :: {key :: <a href="http://elixir-lang.org/docs/stable/elixir/String.html#t:t/0">String.t</a>, meta :: <a href="http://elixir-lang.org/docs/stable/elixir/Map.html#t:t/0">Map.t</a>}</code></pre>
+  
+</div>
+<div id="t:topic/0" class="type-detail">
+  <pre><code class="elixir"><a href="#t:topic/0">topic</a> :: <a href="http://elixir-lang.org/docs/stable/elixir/String.html#t:t/0">String.t</a></code></pre>
+  
+</div>
+
+          </div>
+        </section>
+      
+
+      
+        <section id="functions" class="details-list">
+          <h1 class="section-heading">
+            <a class="hover-link" href="#functions">
+              <i class="icon-link"></i>
+            </a>
+            Functions
+          </h1>
+          <div class="detail" id="child_spec/1">
+  <div class="detail-header">
+    <a href="#child_spec/1" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">child_spec(arg)</span>
+      
+      <a href="https://github.com/phoenixframework/phoenix_pubsub/blob/master/lib/phoenix/tracker.ex#L98" class="view-source" rel="help" title="View Source">
+       <i class="icon-code"></i>
+     </a>
+    
+  </div>
+  
+  <section class="docstring">
+    <p>Returns a specification to start this module under a supervisor.</p>
+<p>See <code class="inline">Supervisor</code>.</p>
+
+  </section>
+</div>
+<div class="detail" id="graceful_permdown/1">
+  <div class="detail-header">
+    <a href="#graceful_permdown/1" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">graceful_permdown(server_name)</span>
+      
+      <a href="https://github.com/phoenixframework/phoenix_pubsub/blob/master/lib/phoenix/tracker.ex#L213" class="view-source" rel="help" title="View Source">
+       <i class="icon-code"></i>
+     </a>
+    
+  </div>
+  
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">graceful_permdown(atom) :: :ok</code></pre>
+        
+      </div>
+    </div>
+  
+  <section class="docstring">
+    <p>Gracefully shuts down by broadcasting permdown to all replicas.</p>
+<h2>Examples</h2>
+<pre><code class="iex elixir">iex&gt; Phoenix.Tracker.graceful_permdown(MyTracker)
+:ok</code></pre>
+
+  </section>
+</div>
+<div class="detail" id="init/1">
+  <div class="detail-header">
+    <a href="#init/1" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">init(list)</span>
+      
+      <a href="https://github.com/phoenixframework/phoenix_pubsub/blob/master/lib/phoenix/tracker.ex#L225" class="view-source" rel="help" title="View Source">
+       <i class="icon-code"></i>
+     </a>
+    
+  </div>
+  
+  <section class="docstring">
+    
+  </section>
+</div>
+<div class="detail" id="list/2">
+  <div class="detail-header">
+    <a href="#list/2" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">list(server_name, topic)</span>
+      
+      <a href="https://github.com/phoenixframework/phoenix_pubsub/blob/master/lib/phoenix/tracker.ex#L196" class="view-source" rel="help" title="View Source">
+       <i class="icon-code"></i>
+     </a>
+    
+  </div>
+  
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">list(atom, <a href="#t:topic/0">topic</a>) :: [<a href="#t:presence/0">presence</a>]</code></pre>
+        
+      </div>
+    </div>
+  
+  <section class="docstring">
+    <p>Lists all presences tracked under a given topic.</p>
+<ul>
+<li><code class="inline">server_name</code> - The registered name of the tracker server
+</li>
+<li><code class="inline">topic</code> - The <a href="Phoenix.PubSub.html"><code class="inline">Phoenix.PubSub</code></a> topic to update for this presence
+</li>
+</ul>
+<p>Returns a lists of presences in key/metadata tuple pairs.</p>
+<h2>Examples</h2>
+<pre><code class="iex elixir">iex&gt; Phoenix.Tracker.list(MyTracker, &quot;lobby&quot;)
+[{123, %{name: &quot;user 123&quot;}}, {456, %{name: &quot;user 456&quot;}}]</code></pre>
+
+  </section>
+</div>
+<div class="detail" id="start_link/3">
+  <div class="detail-header">
+    <a href="#start_link/3" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">start_link(tracker, tracker_opts, server_opts)</span>
+      
+      <a href="https://github.com/phoenixframework/phoenix_pubsub/blob/master/lib/phoenix/tracker.ex#L220" class="view-source" rel="help" title="View Source">
+       <i class="icon-code"></i>
+     </a>
+    
+  </div>
+  
+  <section class="docstring">
+    
+  </section>
+</div>
+<div class="detail" id="track/5">
+  <div class="detail-header">
+    <a href="#track/5" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">track(server_name, pid, topic, key, meta)</span>
+      
+      <a href="https://github.com/phoenixframework/phoenix_pubsub/blob/master/lib/phoenix/tracker.ex#L131" class="view-source" rel="help" title="View Source">
+       <i class="icon-code"></i>
+     </a>
+    
+  </div>
+  
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">track(atom, pid, <a href="#t:topic/0">topic</a>, term, <a href="http://elixir-lang.org/docs/stable/elixir/Map.html#t:t/0">Map.t</a>) ::
+  {:ok, ref :: binary} |
+  {:error, reason :: term}</code></pre>
+        
+      </div>
+    </div>
+  
+  <section class="docstring">
+    <p>Tracks a presence.</p>
+<ul>
+<li><code class="inline">server_name</code> - The registered name of the tracker server
+</li>
+<li><code class="inline">pid</code> - The Pid to track
+</li>
+<li><code class="inline">topic</code> - The <a href="Phoenix.PubSub.html"><code class="inline">Phoenix.PubSub</code></a> topic for this presence
+</li>
+<li><code class="inline">key</code> - The key identifying this presence
+</li>
+<li><code class="inline">meta</code> - The map of metadata to attach to this presence
+</li>
+</ul>
+<p>A process may be tracked multipled times, provided the topic and key pair
+are unique for any prior calls for the given process.</p>
+<h2>Examples</h2>
+<pre><code class="iex elixir">iex&gt; Phoenix.Tracker.track(MyTracker, self(), &quot;lobby&quot;, u.id, %{stat: &quot;away&quot;})
+{:ok, &quot;1WpAofWYIAA=&quot;}
+
+iex&gt; Phoenix.Tracker.track(MyTracker, self(), &quot;lobby&quot;, u.id, %{stat: &quot;away&quot;})
+{:error, {:already_tracked, #PID&lt;0.56.0&gt;, &quot;lobby&quot;, &quot;123&quot;}}</code></pre>
+
+  </section>
+</div>
+<div class="detail" id="untrack/2">
+  <div class="detail-header">
+    <a href="#untrack/2" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">untrack(server_name, pid)</span>
+      
+      <a href="https://github.com/phoenixframework/phoenix_pubsub/blob/master/lib/phoenix/tracker.ex#L157" class="view-source" rel="help" title="View Source">
+       <i class="icon-code"></i>
+     </a>
+    
+  </div>
+  
+  <section class="docstring">
+    
+  </section>
+</div>
+<div class="detail" id="untrack/4">
+  <div class="detail-header">
+    <a href="#untrack/4" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">untrack(server_name, pid, topic, key)</span>
+      
+      <a href="https://github.com/phoenixframework/phoenix_pubsub/blob/master/lib/phoenix/tracker.ex#L154" class="view-source" rel="help" title="View Source">
+       <i class="icon-code"></i>
+     </a>
+    
+  </div>
+  
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">untrack(atom, pid, <a href="#t:topic/0">topic</a>, term) :: :ok</code></pre>
+        
+      </div>
+    </div>
+  
+  <section class="docstring">
+    <p>Untracks a presence.</p>
+<ul>
+<li><code class="inline">server_name</code> - The registered name of the tracker server
+</li>
+<li><code class="inline">pid</code> - The Pid to untrack
+</li>
+<li><code class="inline">topic</code> - The <a href="Phoenix.PubSub.html"><code class="inline">Phoenix.PubSub</code></a> topic to untrack for this presence
+</li>
+<li><code class="inline">key</code> - The key identifying this presence
+</li>
+</ul>
+<p>All presences for a given Pid can be untracked by calling the
+<a href="Phoenix.Tracker.html#untrack/2"><code class="inline">Phoenix.Tracker.untrack/2</code></a> signature of this function.</p>
+<h2>Examples</h2>
+<pre><code class="iex elixir">iex&gt; Phoenix.Tracker.untrack(MyTracker, self(), &quot;lobby&quot;, u.id)
+:ok
+iex&gt; Phoenix.Tracker.untrack(MyTracker, self())
+:ok</code></pre>
+
+  </section>
+</div>
+<div class="detail" id="update/5">
+  <div class="detail-header">
+    <a href="#update/5" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">update(server_name, pid, topic, key, meta)</span>
+      
+      <a href="https://github.com/phoenixframework/phoenix_pubsub/blob/master/lib/phoenix/tracker.ex#L178" class="view-source" rel="help" title="View Source">
+       <i class="icon-code"></i>
+     </a>
+    
+  </div>
+  
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">update(atom, pid, <a href="#t:topic/0">topic</a>, term, <a href="http://elixir-lang.org/docs/stable/elixir/Map.html#t:t/0">Map.t</a> | (<a href="http://elixir-lang.org/docs/stable/elixir/Map.html#t:t/0">Map.t</a> -> <a href="http://elixir-lang.org/docs/stable/elixir/Map.html#t:t/0">Map.t</a>)) ::
+  {:ok, ref :: binary} |
+  {:error, reason :: term}</code></pre>
+        
+      </div>
+    </div>
+  
+  <section class="docstring">
+    <p>Updates a presence’s metadata.</p>
+<ul>
+<li><code class="inline">server_name</code> - The registered name of the tracker server
+</li>
+<li><code class="inline">pid</code> - The Pid being tracked
+</li>
+<li><code class="inline">topic</code> - The <a href="Phoenix.PubSub.html"><code class="inline">Phoenix.PubSub</code></a> topic to update for this presence
+</li>
+<li><code class="inline">key</code> - The key identifying this presence
+</li>
+</ul>
+<h2>Examples</h2>
+<pre><code class="iex elixir">iex&gt; Phoenix.Tracker.update(MyTracker, self(), &quot;lobby&quot;, u.id, %{stat: &quot;zzz&quot;})
+{:ok, &quot;1WpAofWYIAA=&quot;}
+
+iex&gt; Phoenix.Tracker.update(MyTracker, self(), &quot;lobby&quot;, u.id, fn meta -&gt; Map.put(meta, :away, true) end)
+{:ok, &quot;1WpAofWYIAA=&quot;}</code></pre>
+
+  </section>
+</div>
+<div class="detail" id="validate_down_period/2">
+  <div class="detail-header">
+    <a href="#validate_down_period/2" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">validate_down_period(d_period, b_period)</span>
+      
+      <a href="https://github.com/phoenixframework/phoenix_pubsub/blob/master/lib/phoenix/tracker.ex#L274" class="view-source" rel="help" title="View Source">
+       <i class="icon-code"></i>
+     </a>
+    
+  </div>
+  
+  <section class="docstring">
+    
+  </section>
+</div>
+<div class="detail" id="validate_permdown_period/2">
+  <div class="detail-header">
+    <a href="#validate_permdown_period/2" class="detail-link" title="Link to this function">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">validate_permdown_period(p_period, d_period)</span>
+      
+      <a href="https://github.com/phoenixframework/phoenix_pubsub/blob/master/lib/phoenix/tracker.ex#L279" class="view-source" rel="help" title="View Source">
+       <i class="icon-code"></i>
+     </a>
+    
+  </div>
+  
+  <section class="docstring">
+    
+  </section>
+</div>
+
+        </section>
+      
+
+      
+
+      
+        <section id="callbacks" class="details-list">
+          <h1 class="section-heading">
+            <a class="hover-link" href="#callbacks">
+              <i class="icon-link"></i>
+            </a>
+            Callbacks
+          </h1>
+          <div class="detail" id="c:handle_diff/2">
+  <div class="detail-header">
+    <a href="#c:handle_diff/2" class="detail-link" title="Link to this callback">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">handle_diff(%{}, state)</span>
+      
+      <a href="https://github.com/phoenixframework/phoenix_pubsub/blob/master/lib/phoenix/tracker.ex#L106" class="view-source" rel="help" title="View Source">
+       <i class="icon-code"></i>
+     </a>
+    
+  </div>
+  
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">handle_diff(%{optional(<a href="#t:topic/0">topic</a>) => {joins :: [<a href="#t:presence/0">presence</a>], leaves :: [<a href="#t:presence/0">presence</a>]}}, state :: term) :: {:ok, state :: term}</code></pre>
+        
+      </div>
+    </div>
+  
+  <section class="docstring">
+    
+  </section>
+</div>
+<div class="detail" id="c:init/1">
+  <div class="detail-header">
+    <a href="#c:init/1" class="detail-link" title="Link to this callback">
+      <i class="icon-link"></i>
+    </a>
+    <span class="signature">init(arg0)</span>
+      
+      <a href="https://github.com/phoenixframework/phoenix_pubsub/blob/master/lib/phoenix/tracker.ex#L105" class="view-source" rel="help" title="View Source">
+       <i class="icon-code"></i>
+     </a>
+    
+  </div>
+  
+    <div class="specs">
+      <h4 class="specs-title">Specs</h4>
+      <div class="specs-list">
+        
+          <pre><code class="elixir">init(<a href="http://elixir-lang.org/docs/stable/elixir/Keyword.html#t:t/0">Keyword.t</a>) ::
+  {:ok, state :: term} |
+  {:error, reason :: term}</code></pre>
+        
+      </div>
+    </div>
+  
+  <section class="docstring">
+    
+  </section>
+</div>
+
+        </section>
+      
+        <footer class="footer">
+      <p>
+        <span class="line">
+          Built using
+          <a href="https://github.com/elixir-lang/ex_doc" title="ExDoc" rel="help" target="_blank">ExDoc</a> (v0.11.5),
+        </span>
+        <span class="line">
+          designed by
+          <a href="https://twitter.com/dignifiedquire" target="_blank" title="@dignifiedquire">Friedel Ziegelmayer</a>.
+          </span>
+      </p>
+      <button class="night-mode-toggle" />
+    </footer>
+  </div>
+</section>
+</div>
+  <script src="dist/app-918614602f.js"></script>
+  </body>
+</html>
+
